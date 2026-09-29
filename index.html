@@ -159,6 +159,15 @@
           esfera.position.x = (mao[8].x * 2 - 1) * aspecto;
           esfera.position.y = -(mao[8].y * 2 - 1);
           esfera.visible = true;
+
+          // a pinça muda a esfera: cor e tamanho
+          if (pinca) {
+            esfera.material.color.set('#ffb454');
+            esfera.scale.setScalar(1.6);
+          } else {
+            esfera.material.color.set('#6c4cff');
+            esfera.scale.setScalar(1.0);
+          }
           ​
           estado.textContent = pinca ? 'Pinça!' : 'Distância polegar-indicador: ' + distancia.toFixed(3);
         } else {
@@ -177,3 +186,4 @@
 
 </body>
 </html>
+

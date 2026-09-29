@@ -105,7 +105,14 @@
             du.drawLandmarks(m, { color: '#ff5d8f', radius: 5 });
           }
 
-          estado.textContent = 'Mãos detectadas: ' + res.landmarks.length;
+          
+          const mao = res.landmarks[0];
+          ​
+          // pinça: distância entre a ponta do polegar (4) e a do indicador (8)
+          const distancia = Math.hypot(mao[4].x - mao[8].x, mao[4].y - mao[8].y);
+          const pinca = distancia < 0.06;
+          ​
+          estado.textContent = pinca ? 'Pinça!' : 'Distância polegar-indicador: ' + distancia.toFixed(3);
         } else {
           estado.textContent = 'Mostre a mão';
         }

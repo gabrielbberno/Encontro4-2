@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minha mão no navegador</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+
+    /* as camadas ocupam a tela toda, uma sobre a outra, todas espelhadas */
+    #video, #desenho {
+      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      transform: scaleX(-1);   /* espelho, como uma selfie */
+    }
+    #video { object-fit: fill; z-index: 1; }
+    #desenho { z-index: 3; }
+    
+
+    /* painel de estado: mostra o que está acontecendo, e os erros */
+    #estado {
+      position: fixed; top: 12px; left: 12px; z-index: 10;
+      background: rgba(0, 0, 0, 0.75); color: #7de3d7;
+      padding: 10px 14px; border-radius: 8px; font-size: 18px;
+    }
+  </style>
+</head>
+<body>
+
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="desenho"></canvas>
+  <div id="estado">Carregando...</div>
+
+  <script type="module">
+    // ================ IMPORTAÇÕES ================
+    import { FilesetResolver, HandLandmarker, DrawingUtils }
+    from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.15/vision_bundle.mjs";
+  ​
+    // ================ ELEMENTOS DA PÁGINA ================
+    const estado = document.getElementById('estado');
+    const video = document.getElementById('video');
+
+    // ================ DESENHO: a camada dos pontos ================
+    const desenho = document.getElementById('desenho');
+    const ctx = desenho.getContext('2d');
+    const du = new DrawingUtils(ctx);   // ferramenta do MediaPipe que desenha os pontos
+​
+    // o canvas precisa ter o tamanho da janela, senão os pontos caem no lugar errado
+    function ajustarTamanho() {
+      desenho.width = window.innerWidth;
+      desenho.height = window.innerHeight;
+    }
+    ajustarTamanho();
+    window.addEventListener('resize', ajustarTamanho);
+
+    
+
+    // ================ INICIAR: câmera e detector ================
+    let detector;
+    ​
+    async function iniciar() {
+      try {
+        // 1) liga a câmera frontal e mostra no vídeo
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+        video.srcObject = stream;
+        await video.play();
+        
+        
+        // 2) carrega o motor do MediaPipe (um programa WASM que faz as contas)
+        estado.textContent = 'Carregando o modelo...';
+        const vision = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.15/wasm"
+        );
+​
+        // 3) cria o detector de mãos, com o modelo treinado
+        detector = await HandLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+            delegate: "GPU"
+          },
+          numHands: 2,
+          runningMode: "VIDEO"
+        });
+​
+        estado.textContent = 'Pronto! Mostre a mão.';
+        loop();
+      } catch (erro) {
+        // se algo falhar (câmera negada, sem internet), o erro aparece na tela
+        estado.textContent = 'Erro: ' + erro.message;
+        console.error(erro);
+      }
+    }
+    // ================ LOOP: roda a cada quadro ================
+    let ultimoTempo = -1;
+ 
+    function loop() {
+       // só analisa quando chega um quadro NOVO do vídeo
+       if (video.currentTime !== ultimoTempo) {
+        ultimoTempo = video.currentTime;
+        const res = detector.detectForVideo(video, performance.now());
+
+        // apaga o desenho do quadro anterior
+        ctx.clearRect(0, 0, desenho.width, desenho.height);
+ 
+         if (res.landmarks.length > 0) {
+            // desenha o esqueleto de cada mão: 21 pontos e as ligações
+            for (const m of res.landmarks) {
+                du.drawConnectors(m, HandLandmarker.HAND_CONNECTIONS, { color: '#4fd1c5', lineWidth: 4 });
+                du.drawLandmarks(m, { color: '#ff5d8f', radius: 5 });
+            }
+
+            estado.textContent = 'Mãos detectadas: ' + res.landmarks.length;
+        } else {
+            estado.textContent = 'Mostre a mão';
+         }
+        }
+        requestAnimationFrame(loop);   // pede ao navegador o próximo quadro
+    }
+
+    iniciar();
+  </script>
+
+</body>
+</html>

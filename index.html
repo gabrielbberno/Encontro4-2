@@ -3,18 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Minha mão no navegador</title>
+  <title>Meu corpo no navegador</title>
   <style>
     body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
 
     /* as camadas ocupam a tela toda, uma sobre a outra, todas espelhadas */
-    #video, #desenho, #tresd {
+    #video, #desenho {
       position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
       transform: scaleX(-1);   /* espelho, como uma selfie */
     }
     #video { object-fit: fill; z-index: 1; }
     #desenho { z-index: 3; }
-    #tresd { z-index: 4; }
 
     /* painel de estado: mostra o que está acontecendo, e os erros */
     #estado {
@@ -23,24 +22,17 @@
       padding: 10px 14px; border-radius: 8px; font-size: 18px;
     }
   </style>
-    <!-- o import map diz ao navegador onde buscar o Three.js -->
-    <script type="importmap">
-    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js" } }
-    </script>
 </head>
 <body>
 
   <video id="video" autoplay playsinline muted></video>
   <canvas id="desenho"></canvas>
-  <canvas id="tresd"></canvas>
   <div id="estado">Carregando...</div>
 
   <script type="module">
     // ================ IMPORTAÇÕES ================
-    import { FilesetResolver, HandLandmarker, DrawingUtils }
+    import { FilesetResolver, PoseLandmarker, DrawingUtils }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.15/vision_bundle.mjs";
-    import * as THREE from 'three';
-
 
     // ================ ELEMENTOS DA PÁGINA ================
     const estado = document.getElementById('estado');
@@ -59,40 +51,6 @@
     ajustarTamanho();
     window.addEventListener('resize', ajustarTamanho);
 
-    // ================ CENA 3D (Three.js) ================
-    const cena = new THREE.Scene();
-    let aspecto = window.innerWidth / window.innerHeight;
-    // câmera ortográfica: a tela vai de -aspecto a +aspecto na horizontal, e de -1 a +1 na vertical
-    const camera = new THREE.OrthographicCamera(-aspecto, aspecto, 1, -1, 0.1, 10);
-    camera.position.z = 3;
-    cena.add(new THREE.AmbientLight('#ffffff', 1.6));
-    const luz = new THREE.DirectionalLight('#ffffff', 1.4);
-    luz.position.set(0, 0, 5);
-    cena.add(luz);
-​
-    // a esfera que vai seguir o dedo
-    const esfera = new THREE.Mesh(
-      new THREE.SphereGeometry(0.09, 32, 16),
-      new THREE.MeshStandardMaterial({ color: '#6c4cff', roughness: 0.35 })
-    );
-    esfera.visible = false;   // só aparece quando houver mão
-    cena.add(esfera);
-​
-    // o renderer desenha no canvas #tresd, com fundo transparente (alpha)
-    const renderer = new THREE.WebGLRenderer({
-      canvas: document.getElementById('tresd'), alpha: true, antialias: true
-    });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(window.innerWidth, window.innerHeight);
-​
-    window.addEventListener('resize', () => {
-      aspecto = window.innerWidth / window.innerHeight;
-      camera.left = -aspecto;
-      camera.right = aspecto;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    });
-
     // ================ INICIAR: câmera e detector ================
     let detector;
 
@@ -109,17 +67,17 @@
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.15/wasm"
         );
 
-        // 3) cria o detector de mãos, com o modelo treinado
-        detector = await HandLandmarker.createFromOptions(vision, {
+        // 3) cria o detector de CORPO, com o modelo treinado
+        detector = await PoseLandmarker.createFromOptions(vision, {
           baseOptions: {
-            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
             delegate: "GPU"
           },
-          numHands: 2,
+          numPoses: 1,
           runningMode: "VIDEO"
         });
 
-        estado.textContent = 'Pronto! Mostre a mão.';
+        estado.textContent = 'Pronto! Afaste-se para aparecer o corpo.';
         loop();
       } catch (erro) {
         // se algo falhar (câmera negada, sem internet), o erro aparece na tela
@@ -141,42 +99,15 @@
         ctx.clearRect(0, 0, desenho.width, desenho.height);
 
         if (res.landmarks.length > 0) {
-          // desenha o esqueleto de cada mão: 21 pontos e as ligações
-          for (const m of res.landmarks) {
-            du.drawConnectors(m, HandLandmarker.HAND_CONNECTIONS, { color: '#4fd1c5', lineWidth: 4 });
-            du.drawLandmarks(m, { color: '#ff5d8f', radius: 5 });
+          // desenha o esqueleto do corpo: 33 pontos
+          for (const corpo of res.landmarks) {
+            du.drawConnectors(corpo, PoseLandmarker.POSE_CONNECTIONS, { color: '#4fd1c5', lineWidth: 4 });
+            du.drawLandmarks(corpo, { color: '#ff5d8f', radius: 4 });
           }
-
-          
-          const mao = res.landmarks[0];
-          ​
-          // pinça: distância entre a ponta do polegar (4) e a do indicador (8)
-          const distancia = Math.hypot(mao[4].x - mao[8].x, mao[4].y - mao[8].y);
-          const pinca = distancia < 0.06;
-
-          // a esfera segue a ponta do indicador (ponto 8)
-          // de 0..1 para o espaço da câmera: -aspecto..+aspecto e +1..-1
-          esfera.position.x = (mao[8].x * 2 - 1) * aspecto;
-          esfera.position.y = -(mao[8].y * 2 - 1);
-          esfera.visible = true;
-
-          // a pinça muda a esfera: cor e tamanho
-          if (pinca) {
-            esfera.material.color.set('#ffb454');
-            esfera.scale.setScalar(1.6);
-          } else {
-            esfera.material.color.set('#6c4cff');
-            esfera.scale.setScalar(1.0);
-          }
-          ​
-          estado.textContent = pinca ? 'Pinça!' : 'Distância polegar-indicador: ' + distancia.toFixed(3);
+          estado.textContent = 'Corpo detectado: ' + res.landmarks[0].length + ' pontos';
         } else {
-          esfera.visible = false;
-          estado.textContent = 'Mostre a mão';
+          estado.textContent = 'Afaste-se para aparecer o corpo';
         }
-
-        // desenha a cena 3D com a esfera na posição nova
-        renderer.render(cena, camera);
       }
       requestAnimationFrame(loop);   // pede ao navegador o próximo quadro
     }
@@ -186,4 +117,3 @@
 
 </body>
 </html>
-

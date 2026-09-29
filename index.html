@@ -8,12 +8,13 @@
     body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
 
     /* as camadas ocupam a tela toda, uma sobre a outra, todas espelhadas */
-    #video, #desenho {
+    #video, #desenho, #tresd {
       position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
       transform: scaleX(-1);   /* espelho, como uma selfie */
     }
     #video { object-fit: fill; z-index: 1; }
     #desenho { z-index: 3; }
+    #tresd { z-index: 4; }
 
     /* painel de estado: mostra o que está acontecendo, e os erros */
     #estado {
@@ -22,17 +23,24 @@
       padding: 10px 14px; border-radius: 8px; font-size: 18px;
     }
   </style>
+    <!-- o import map diz ao navegador onde buscar o Three.js -->
+    <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js" } }
+    </script>
 </head>
 <body>
 
   <video id="video" autoplay playsinline muted></video>
   <canvas id="desenho"></canvas>
+  <canvas id="tresd"></canvas>
   <div id="estado">Carregando...</div>
 
   <script type="module">
     // ================ IMPORTAÇÕES ================
     import { FilesetResolver, HandLandmarker, DrawingUtils }
       from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.15/vision_bundle.mjs";
+    import * as THREE from 'three';
+
 
     // ================ ELEMENTOS DA PÁGINA ================
     const estado = document.getElementById('estado');
@@ -50,6 +58,40 @@
     }
     ajustarTamanho();
     window.addEventListener('resize', ajustarTamanho);
+
+    // ================ CENA 3D (Three.js) ================
+    const cena = new THREE.Scene();
+    let aspecto = window.innerWidth / window.innerHeight;
+    // câmera ortográfica: a tela vai de -aspecto a +aspecto na horizontal, e de -1 a +1 na vertical
+    const camera = new THREE.OrthographicCamera(-aspecto, aspecto, 1, -1, 0.1, 10);
+    camera.position.z = 3;
+    cena.add(new THREE.AmbientLight('#ffffff', 1.6));
+    const luz = new THREE.DirectionalLight('#ffffff', 1.4);
+    luz.position.set(0, 0, 5);
+    cena.add(luz);
+​
+    // a esfera que vai seguir o dedo
+    const esfera = new THREE.Mesh(
+      new THREE.SphereGeometry(0.09, 32, 16),
+      new THREE.MeshStandardMaterial({ color: '#6c4cff', roughness: 0.35 })
+    );
+    esfera.visible = false;   // só aparece quando houver mão
+    cena.add(esfera);
+​
+    // o renderer desenha no canvas #tresd, com fundo transparente (alpha)
+    const renderer = new THREE.WebGLRenderer({
+      canvas: document.getElementById('tresd'), alpha: true, antialias: true
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+​
+    window.addEventListener('resize', () => {
+      aspecto = window.innerWidth / window.innerHeight;
+      camera.left = -aspecto;
+      camera.right = aspecto;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
 
     // ================ INICIAR: câmera e detector ================
     let detector;
@@ -111,11 +153,21 @@
           // pinça: distância entre a ponta do polegar (4) e a do indicador (8)
           const distancia = Math.hypot(mao[4].x - mao[8].x, mao[4].y - mao[8].y);
           const pinca = distancia < 0.06;
+
+          // a esfera segue a ponta do indicador (ponto 8)
+          // de 0..1 para o espaço da câmera: -aspecto..+aspecto e +1..-1
+          esfera.position.x = (mao[8].x * 2 - 1) * aspecto;
+          esfera.position.y = -(mao[8].y * 2 - 1);
+          esfera.visible = true;
           ​
           estado.textContent = pinca ? 'Pinça!' : 'Distância polegar-indicador: ' + distancia.toFixed(3);
         } else {
+          esfera.visible = false;
           estado.textContent = 'Mostre a mão';
         }
+
+        // desenha a cena 3D com a esfera na posição nova
+        renderer.render(cena, camera);
       }
       requestAnimationFrame(loop);   // pede ao navegador o próximo quadro
     }
